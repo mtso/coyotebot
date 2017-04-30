@@ -1,4 +1,10 @@
 {
-    "name": "coyotebot",
-    "version": "1.0.0"
+  "name": "coyotebot",
+  "version": "1.0.0",
+  "dependencies": {
+    "body-parser": "^1.17.1",
+    "dotenv": "^4.0.0",
+    "express": "^4.15.2",
+    "mongoose": "^4.9.6"
+  }
 }
