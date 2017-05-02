@@ -3,11 +3,12 @@ var mongoose = require('mongoose');
 var bodyParser = require('body-parser');
 var sendHttpRequest = require('request');
 var dotenv = require('dotenv').config();
+var path = require('path');
 
 var Team = require('./Team');
 
 var app = express();
-var hostUrl;
+var hostUrl = process.env.HOST_URL;
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -15,7 +16,8 @@ mongoose.connect(process.env.MONGOLAB_URI);
 
 // Construct OAuth handshake URL with API credentials.
 function createBaseUrl(host) {
-  var hostAuthUrl = encodeURIComponent(path.resolve(host, 'auth'));
+  console.log(host)
+  var hostAuthUrl = encodeURIComponent(host + '/auth');
   var baseUrl = 'https://slack.com/api/oauth.access'
   + '?client_id=' + process.env.SLACK_CLIENT_ID
   + '&client_secret=' + process.env.SLACK_CLIENT_SECRET
@@ -33,23 +35,25 @@ function handleAuthResponse(response) {
   return function(error, result, body) {  
     body = JSON.parse(body);
 
+    console.log(body)
+
     if (error !== null || !body.incoming_webhook) {
       response.send('Error, please try again.')
     } else {
       // Access token can be used to identify the team ID if the scope was set.
       var _ = result.body.access_token;
 
-      var t = new Team({
-        _id: body.team_id,
-        webhook: body.incoming_webhook.url,
-      })
-      t.save(function(err) {
-        if (err) {
-          console.error(err)
-        } else {
-          response.send('Pengo mvp added.')
+      Team.update(
+        { _id: body.team_id }, 
+        { $set: {webhook: body.incoming_webhook.url} },
+        function(err) {
+          if (err) {
+            console.error(err)
+          } else {
+            response.send('Pengo mvp added.')
+          }
         }
-      })
+      )
     }
   }
 }
@@ -75,21 +79,56 @@ app.post('/sethost', function(request, response) {
 // This needs to be added to the app's settings at https://api.slack.com/apps
 app.get('/auth', function(request, response) {
   // Require an OAuth handshake code to continue.
-  if (request.body.code === undefined) {
+  if (!request.query.code) {
     return response.redirect('/');
   }
   // Attach the OAuth handshake code to base API URL.
-  var authUrl = createBaseUrl(hostUrl) + '&code=' + req.query.code;
+  var authUrl = createBaseUrl(hostUrl) + '&code=' + request.query.code;
   // request lib signature: .get([urlstring], [function callback(error, result){}])
   sendHttpRequest.get(authUrl, handleAuthResponse(response));
 });
 
 app.post('/belltower', function(req, res) {
+  makeBelltower(req.body.team_id);
+
   res.json({
     response_type: 'ephemeral',
-    text: 'The time is: ' + (new Date).toLocaleString(),
+    text: 'Started toll at ' + (new Date).toLocaleString(),
   });
 });
+
+function makeBelltower(teamId) {
+  Team.findOne({_id: teamId}, function(err, res) {
+    if (err) {
+      return console.error(err)
+    }
+
+    let webhook = res.webhook;
+    var times = 0;
+    var timer;
+
+    timer = setInterval(function() {
+      times += 1;
+      
+      if (times > 5) {
+        clearInterval(timer);
+      }
+
+      sendHttpRequest.post({
+        url: webhook,
+        body: {
+          text: 'Toll: ' + (new Date).toLocaleString(),
+        },
+        json: true,
+      }, function(err) {})
+
+    }, 1000 * 60)
+  })
+}
+
+// app.get('/', function(req, res)  {
+//   let index = '<a href="https://slack.com/oauth/authorize?&client_id=173004348162.177331434613&scope=commands,incoming-webhook"><img alt="Add to Slack" height="40" width="139" src="https://platform.slack-edge.com/img/add_to_slack.png" srcset="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x" /></a>'
+// })
 
 app.listen(port = process.env.PORT || 3750, () => {
   console.log('listening on', port);
